@@ -1,0 +1,19 @@
+{
+  "blockingErrorCount": 0,
+  "compilerProcess": "legal-corpus-cli",
+  "contentClass": "legal-corpus",
+  "definitionCount": 4,
+  "documentCount": 1,
+  "legalClauseCount": 346,
+  "markdownCount": 362,
+  "metadataOnly": true,
+  "operatorApprovalId": null,
+  "operatorApprovalRequired": true,
+  "provenanceCount": 247,
+  "sensitivity": "public",
+  "syncEligibility": "blocked",
+  "targetNamespace": null,
+  "unresolvedReferenceCount": 8,
+  "validationStatus": "passed",
+  "warningCount": 8
+}

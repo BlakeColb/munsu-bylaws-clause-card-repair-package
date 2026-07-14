@@ -40,6 +40,7 @@ class SourceAnchor(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     page: int | None = None
+    page_end: int | None = None
     original_page: int | None = None
     line_start: int | None = None
     line_end: int | None = None

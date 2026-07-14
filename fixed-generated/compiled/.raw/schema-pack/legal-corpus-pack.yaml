@@ -1,0 +1,66 @@
+api_version: gbrain-schema-pack-v1
+name: legal-corpus
+version: 0.1.0
+gbrain_min_version: 0.39.0
+status: suggestion_requires_validation
+page_types:
+- name: legal_instrument
+  description: One source legal instrument with document-level metadata.
+  directory: legal/instruments
+  required_fields:
+  - document_type
+  - jurisdiction
+  - authority_rank
+  - status
+  - effective_date
+  - confidentiality
+- name: legal_clause
+  description: One parsed legal unit with exact source text and parent context.
+  directory: legal/clauses
+  required_fields:
+  - clause_id
+  - instrument_slug
+  - parent_chain
+  - document_type
+  - jurisdiction
+  - authority_rank
+  - status
+  - effective_date
+  - confidentiality
+- name: legal_definition
+  description: A defined term scoped to its source instrument.
+  directory: legal/definitions
+  required_fields:
+  - term
+  - instrument_slug
+  - source_clause
+  - status
+- name: unresolved_reference
+  description: An explicit unresolved cross-reference requiring review.
+  directory: legal/unresolved-references
+  required_fields:
+  - source_clause
+  - reference_type
+  - reference_text
+  - resolution_status
+link_types:
+- name: child_of
+  description: Child legal unit belongs under a parent legal unit.
+- name: parent_of
+  description: Parent legal unit contains a child legal unit.
+- name: defines
+  description: Clause creates a defined term.
+- name: uses_definition
+  description: Clause depends on a defined term.
+- name: read_with
+  description: Clause must be read with another legal unit or instrument.
+- name: exception_to
+  description: Clause creates or records an exception relationship.
+- name: supersedes
+  description: Clause or instrument supersedes another legal authority.
+- name: higher_authority_than
+  description: Authority relationship for conflict-aware retrieval.
+activation_notes:
+- Run gbrain schema validate against this suggestion before use.
+- The schema-pack suggestion requires human review before activation.
+- Do not treat this file as an activated production pack.

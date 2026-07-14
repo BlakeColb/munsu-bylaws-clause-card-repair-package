@@ -11,8 +11,11 @@ import pdfplumber
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PDF_PATH = PACKAGE_ROOT / "source" / "munsu-bylaws-2026.pdf"
-CARDS_DIR = PACKAGE_ROOT / "current-generated" / "compiled" / "legal" / "clauses" / "bylaws"
-PACKET = PACKAGE_ROOT / "review" / "full-production-review-packet"
+# The re-audit targets the repaired corpus; current-generated/ remains in the
+# repository only as the superseded review baseline. Paths can be overridden
+# with --cards-dir / --packet / --pdf / --outputs.
+CARDS_DIR = PACKAGE_ROOT / "fixed-generated" / "compiled" / "legal" / "clauses" / "bylaws"
+PACKET = PACKAGE_ROOT / "fixed-generated" / "review-packet"
 OUTPUTS = PACKAGE_ROOT / "review" / "re-audit-output"
 
 
@@ -181,7 +184,12 @@ def load_warning_ids() -> dict[str, list[str]]:
         else:
             items = data
         for item in items:
-            clause = item.get("affected_clause") or item.get("affected_clause_id") or item.get("clause_id")
+            clause = (
+                item.get("affected_clause")
+                or item.get("affected_clause_id")
+                or item.get("clause_id")
+                or item.get("source_clause")
+            )
             wid = item.get("warning_id") or item.get("id")
             if clause and wid:
                 by_clause.setdefault(clause, []).append(wid)
@@ -189,7 +197,10 @@ def load_warning_ids() -> dict[str, list[str]]:
             return by_clause
 
     by_clause = {}
-    text = (PACKET / "warning-register.md").read_text(encoding="utf-8")
+    md_path = PACKET / "warning-register.md"
+    if not md_path.exists():
+        return by_clause
+    text = md_path.read_text(encoding="utf-8")
     for line in text.splitlines():
         if not line.startswith("| munsu-"):
             continue
@@ -199,11 +210,47 @@ def load_warning_ids() -> dict[str, list[str]]:
     return by_clause
 
 
+def derive_warnings_from_cards(cards: list[dict]) -> dict[str, list[str]]:
+    """Fallback: derive warning carriage from card frontmatter when no register exists."""
+    by_clause: dict[str, list[str]] = {}
+    for card in cards:
+        cid = card_id_of(card)
+        for wid in card["meta"].get("unresolved_references") or []:
+            if isinstance(wid, str):
+                by_clause.setdefault(cid, []).append(wid)
+    return by_clause
+
+
+def _line_confirmed(line: str, hay: str, hay_set: set[str]) -> bool:
+    """Confirm a single card line against one page's normalized text."""
+    n = norm(line)
+    if not n:
+        return True
+    if n in hay:
+        return True
+    line_tokens = tokens(line)
+    if not line_tokens:
+        return True
+    # Two-line headings appear in the text layer as "TITLE" above "A.", so
+    # confirm short heading lines token-wise rather than as a substring.
+    if len(line_tokens) <= 5 and all(tok in hay_set for tok in line_tokens):
+        return True
+    words = n.split()
+    if len(words) >= 14:
+        first = " ".join(words[:8])
+        last = " ".join(words[-8:])
+        if first in hay or last in hay:
+            return True
+    present = sum(1 for tok in line_tokens if tok in hay_set)
+    return present / len(line_tokens) >= 0.9
+
+
 def find_pages(source_text: str, pages: dict[int, str]) -> list[int]:
     needle = norm(source_text)
     if not needle:
         return []
     needle_tokens = tokens(source_text)
+    source_lines = [ln.strip() for ln in source_text.splitlines() if ln.strip()]
     found = []
     for pno, text in pages.items():
         hay = norm(text)
@@ -218,6 +265,11 @@ def find_pages(source_text: str, pages: dict[int, str]) -> list[int]:
             if all(tok in hay_set for tok in needle_tokens):
                 found.append(pno)
                 continue
+        # Multi-line cards (heading plus body, or list-preserving clauses) are
+        # confirmed when every line is individually present on the page.
+        if len(source_lines) > 1 and all(_line_confirmed(ln, hay, hay_set) for ln in source_lines):
+            found.append(pno)
+            continue
         # For longer clauses, PDF extraction may break punctuation/line joins; check important chunks.
         words = needle.split()
         if len(words) >= 14:
@@ -231,32 +283,124 @@ def find_pages(source_text: str, pages: dict[int, str]) -> list[int]:
                 # Repeated common words inflate less than this threshold; this is for extraction quirks.
                 if present / len(needle_tokens) >= 0.82:
                     found.append(pno)
+    if found:
+        return found
+    # Page-spanning text may not sit wholly on any single page; confirm against
+    # adjacent page joins (with printed page numbers stripped) so a clause
+    # continuing onto the next page anchors to both.
+    ordered = sorted(pages)
+    for pno in ordered:
+        next_text = pages.get(pno + 1)
+        if next_text is None:
+            continue
+        left = " ".join(clean_pdf_lines(pages[pno]))
+        right = " ".join(clean_pdf_lines(next_text))
+        joined = norm(left + " " + right)
+        if needle in joined:
+            return [pno, pno + 1]
+        words = needle.split()
+        if len(words) >= 14:
+            first = " ".join(words[:8])
+            last = " ".join(words[-8:])
+            if first in norm(left) and last in norm(right):
+                return [pno, pno + 1]
     return found
 
 
-def is_part_ii_structural_gap(card: dict) -> bool:
-    cid = card["meta"].get("clause_id", "")
+NUMBERED_SECTION_RE = re.compile(r"^munsu-bylaws-part-ii-section-(\d+)$")
+PART_I_SECTION_RE = re.compile(r"^munsu-bylaws-part-i-section-([a-z])$")
+PART_I_COLLISION_RE = re.compile(r"^munsu-bylaws-part-i-section-([a-z])-clause-\d+-p\d+$")
+
+
+def card_id_of(card: dict) -> str:
+    return card["meta"].get("clause_id", card["path"].stem)
+
+
+def parent_chain_of(card: dict) -> list[str]:
+    return [str(p) for p in (card["meta"].get("parent_chain") or [])]
+
+
+def compute_set_facts(cards: list[dict]) -> dict:
+    """Whole-set structural facts the per-card predicates need.
+
+    These replace earlier checks that were keyed to the identity of the broken
+    output (flagging every part-ii id, and the literal part-i / section-h ids)
+    and therefore could never reach zero on a repaired set.
+    """
+    import string as _string
+
+    ids = {card_id_of(c) for c in cards}
+    numbered_sections = sorted(
+        int(NUMBERED_SECTION_RE.match(i).group(1)) for i in ids if NUMBERED_SECTION_RE.match(i)
+    )
+    part_i_letters = sorted(
+        PART_I_SECTION_RE.match(i).group(1) for i in ids if PART_I_SECTION_RE.match(i)
+    )
+    missing_letters: list[str] = []
+    if part_i_letters:
+        lo, hi = part_i_letters[0], part_i_letters[-1]
+        expected = _string.ascii_lowercase[_string.ascii_lowercase.index(lo) : _string.ascii_lowercase.index(hi) + 1]
+        missing_letters = [ch for ch in expected if ch not in part_i_letters]
+    collision_hosts: set[str] = set()
+    for c in cards:
+        m = PART_I_COLLISION_RE.match(card_id_of(c))
+        if m:
+            collision_hosts.add(f"munsu-bylaws-part-i-section-{m.group(1)}")
+    for c in cards:
+        for key in ("child_clauses", "child_ids", "children"):
+            for child in c["meta"].get(key) or []:
+                if isinstance(child, str) and PART_I_COLLISION_RE.match(child):
+                    cid = card_id_of(c)
+                    if re.match(r"^munsu-bylaws-part-i-section-[a-z]$", cid):
+                        collision_hosts.add(cid)
+    return {
+        "numbered_sections": numbered_sections,
+        "part_i_missing_letters": missing_letters,
+        "part_i_collision_hosts": collision_hosts,
+    }
+
+
+def is_part_ii_structural_gap(card: dict, facts: dict) -> bool:
+    """A Part II card passes only if it is, or descends from, a numbered Section card."""
+    cid = card_id_of(card)
     if not cid.startswith("munsu-bylaws-part-ii"):
         return False
-    # Part II is organized by numbered sections (Section 1 through Section 22).
-    # The generated IDs skip those section nodes and parent lettered headings directly to Part II.
-    return True
+    if cid == "munsu-bylaws-part-ii":
+        return not facts["numbered_sections"]
+    if NUMBERED_SECTION_RE.match(cid):
+        return False
+    return not any(NUMBERED_SECTION_RE.match(pid) for pid in parent_chain_of(card))
 
 
 def part_i_misparsed_section_i(card: dict) -> bool:
-    cid = card["meta"].get("clause_id", "")
-    return cid in {
-        "munsu-bylaws-part-i-section-h-clause-1-p8",
-        "munsu-bylaws-part-i-section-h-clause-2-p8",
-    }
+    """Any Part I clause with a page collision suffix is a misfiled sibling-section clause."""
+    return bool(PART_I_COLLISION_RE.match(card_id_of(card)))
 
 
-def part_i_parent_section_i_gap(card: dict) -> bool:
-    cid = card["meta"].get("clause_id", "")
-    return cid in {
-        "munsu-bylaws-part-i",
-        "munsu-bylaws-part-i-section-h",
-    }
+def part_i_parent_section_i_gap(card: dict, facts: dict) -> str | None:
+    cid = card_id_of(card)
+    if cid == "munsu-bylaws-part-i" and facts["part_i_missing_letters"]:
+        missing = ", ".join(ch.upper() for ch in facts["part_i_missing_letters"])
+        return (
+            f"Part I lettered section sequence is missing Section {missing} from the generated hierarchy; "
+            "an adjacent section is carrying its clauses."
+        )
+    if cid in facts["part_i_collision_hosts"]:
+        return (
+            "This lettered Part I section carries collision-suffixed child clauses that belong to a "
+            "missing sibling section; remove them from this section's child metadata."
+        )
+    return None
+
+
+def card_preserves_list_structure(card_text: str, segment: str) -> bool:
+    """True when the card carries at least as many newline-anchored list items as the segment shows inline."""
+    marker = r"(?:[a-z]|i{2,3}|iv|v|vi{1,3}|ix|x|xi{1,3})"
+    segment_markers = len(re.findall(rf"\s{marker}\.\s+", segment))
+    if segment_markers == 0:
+        return True
+    card_markers = len(re.findall(rf"(?:^|\n)\s*{marker}\.\s+", card_text))
+    return card_markers >= segment_markers
 
 
 def page_anchor_issue(card: dict, pages_found: list[int]) -> str | None:
@@ -290,8 +434,9 @@ def hierarchy_label(card: dict) -> str:
 def main() -> None:
     OUTPUTS.mkdir(parents=True, exist_ok=True)
     pages = extract_pages()
-    warnings = load_warning_ids()
     cards = [parse_card(path) for path in sorted(CARDS_DIR.glob("*.md"), key=lambda p: p.name)]
+    facts = compute_set_facts(cards)
+    warnings = load_warning_ids() or derive_warnings_from_cards(cards)
     dupes = duplicate_source_groups(cards)
     dupe_ids = {cid for ids in dupes.values() for cid in ids}
 
@@ -323,11 +468,12 @@ def main() -> None:
             issues.append("Part I Section I clause is misidentified as Section H / Council Seal; title, slug, parent, and hierarchy are wrong.")
             fixes.append("Create/use Part I Section I 'By LAWS' parent and move this clause under it with the correct clause ID/title.")
 
-        if part_i_parent_section_i_gap(card) and severity != "P0":
+        gap_message = part_i_parent_section_i_gap(card, facts)
+        if gap_message and severity != "P0":
             verdict = "NEEDS_STRUCTURAL_FIX"
             severity = "P1"
-            issues.append("Part I Section I is missing from the generated hierarchy; Section H also carries Section I child clauses.")
-            fixes.append("Add Part I Section I as its own card and remove the Section I child clauses from Section H / Part I child metadata.")
+            issues.append(gap_message)
+            fixes.append("Add the missing Part I section card and correct the affected child metadata.")
 
         if segment and recall < 0.78 and segment_token_count > card_token_count + 8:
             verdict = "BLOCKED_UNSAFE_TO_IMPORT"
@@ -337,13 +483,18 @@ def main() -> None:
             )
             fixes.append("Regenerate this clause from the full PDF clause segment, preserving nested list items and page-spanning text.")
 
-        if is_part_ii_structural_gap(card) and severity != "P0":
+        if is_part_ii_structural_gap(card, facts) and severity != "P0":
             verdict = "NEEDS_STRUCTURAL_FIX"
             severity = "P1"
             issues.append("Part II numeric section hierarchy is flattened; card is parented directly under Part II or a page-suffixed letter section instead of Section N.")
             fixes.append("Add numbered Section 1-22 parent cards and reparent/rename this card under its true Section N heading.")
 
-        if segment and has_nested_markers(segment) and severity != "P0":
+        if (
+            segment
+            and has_nested_markers(segment)
+            and not card_preserves_list_structure(card["source_text"], segment)
+            and severity != "P0"
+        ):
             verdict = "NEEDS_STRUCTURAL_FIX"
             severity = "P1"
             issues.append("Nested source list structure is flattened into paragraph text, which loses legal hierarchy even where words are present.")
@@ -424,7 +575,21 @@ def main() -> None:
         f.write(f"Cards passed: {passed}\n")
         f.write(f"Cards needing fixes: {needs_fixes}\n")
         f.write(f"Cards blocked: {blocked}\n")
-        f.write("Most serious issue: Thirteen cards are unsafe to import: two Part I Section I clauses are mis-carded under Section H, and eleven Part II clauses omit, splice, or mis-anchor nested/page-spanning source text. Separately, the Part II set broadly flattens the numbered Section 1-22 hierarchy.\n\n")
+        p0_rows = [row for row in rows if row["severity"] == "P0"]
+        p1_rows = [row for row in rows if row["severity"] == "P1"]
+        warning_rows = [row for row in rows if row["_warning_ids"]]
+        if blocked:
+            most_serious = f"{blocked} card(s) are unsafe to import; see the P0 list below."
+        elif p1_rows:
+            most_serious = f"{len(p1_rows)} card(s) need structural fixes; see the grouped patterns below."
+        elif warning_rows:
+            most_serious = (
+                f"No blocking or structural findings. {len(warning_rows)} card(s) carry warning-only "
+                "unresolved-reference metadata, which remains visible for import review."
+            )
+        else:
+            most_serious = "No blocking, structural, or warning-carriage findings."
+        f.write(f"Most serious issue: {most_serious}\n\n")
         f.write("| card_id | file_name | pdf_page_anchor | hierarchy | verdict | severity | issue | required_fix | confidence |\n")
         f.write("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
         for row in rows:
@@ -432,24 +597,62 @@ def main() -> None:
             vals = [str(v).replace("|", "\\|").replace("\n", " ") for v in vals]
             f.write("| " + " | ".join(vals) + " |\n")
         f.write("\n## P0 Blockers Only\n\n")
-        for row in rows:
-            if row["severity"] == "P0":
+        if p0_rows:
+            for row in p0_rows:
                 f.write(f"- `{row['card_id']}`: {row['issue']} Required fix: {row['required_fix']}\n")
+        else:
+            f.write("None.\n")
         f.write("\n## P1 Fixes Grouped By Pattern\n\n")
-        f.write("- Part II numbered-section hierarchy is absent/flattened. Rebuild parentage to include Section 1 through Section 22 before importing Part II cards; this affects the Part II root, Part II subsection cards, and most Part II clause cards.\n")
-        f.write("- Part I Section I is missing as a parent card. Add Part I Section I and remove its clauses from Section H child metadata.\n")
-        f.write("- Nested lower-alpha/roman list structure is collapsed into paragraph text on multiple clause cards. Preserve list structure or split nested items into safe child units.\n")
-        f.write("- Eight unresolved-reference warnings are retained in metadata. They are not compiler-blocking by themselves, but should remain visible unless resolved to stable card IDs.\n")
+        if p1_rows:
+            pattern_counts: dict[str, int] = {}
+            for row in p1_rows:
+                pattern = row["issue"].split(". ")[0].rstrip(".") + "."
+                pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+            for pattern, count in sorted(pattern_counts.items(), key=lambda kv: -kv[1]):
+                f.write(f"- {count} card(s): {pattern}\n")
+        else:
+            f.write("None.\n")
+        f.write("\n## Warning Carriage\n\n")
+        if warning_rows:
+            f.write(
+                f"{len(warning_rows)} card(s) carry unresolved-reference warning metadata. "
+                "They are not compiler-blocking by themselves; resolve only where a stable target card exists, otherwise keep them visible.\n\n"
+            )
+            for row in warning_rows:
+                f.write(f"- `{row['card_id']}`: {row['_warning_ids']}\n")
+        else:
+            f.write("No unresolved-reference warnings are carried by any card.\n")
         f.write("\n## Cards Clean Enough For Import\n\n")
         clean = [row["card_id"] for row in rows if row["verdict"] == "PASS"]
         f.write(f"{len(clean)} cards: " + ", ".join(f"`{cid}`" for cid in clean) + "\n")
         f.write("\n## Cards To Exclude From Next Import Batch\n\n")
         exclude = [row["card_id"] for row in rows if row["verdict"] != "PASS"]
-        f.write(f"{len(exclude)} cards: " + ", ".join(f"`{cid}`" for cid in exclude) + "\n")
+        if exclude:
+            f.write(f"{len(exclude)} cards: " + ", ".join(f"`{cid}`" for cid in exclude) + "\n")
+        else:
+            f.write("None.\n")
         f.write("\n## Attachment Gaps\n\n")
-        f.write("- No attachment gap prevented source verification. PDF text extraction was available and the packet included inventory plus warning metadata. The generated card set itself is missing needed hierarchy cards for Part I Section I and Part II Section 1-22; those are review findings, not attachment gaps.\n")
+        f.write("- No attachment gap prevented source verification: PDF text extraction and warning metadata were available for this audit.\n")
+        structural_notes = []
+        if not facts["numbered_sections"]:
+            structural_notes.append("the Part II numbered Section 1-22 parent cards are absent")
+        if facts["part_i_missing_letters"]:
+            missing = ", ".join(ch.upper() for ch in facts["part_i_missing_letters"])
+            structural_notes.append(f"Part I is missing lettered Section {missing}")
+        if structural_notes:
+            f.write(f"- Generated-set structural gaps (review findings, not attachment gaps): {'; '.join(structural_notes)}.\n")
         f.write("\n## Recommendation\n\n")
-        f.write("Do not continue full-document Bylaws ingestion yet. Blake can continue after the listed P0 omissions/misparents and P1 hierarchy/list-structure defects are fixed; the remaining P2 unresolved-reference warnings can be carried as bounded review metadata if still unresolved.\n")
+        if blocked:
+            f.write("Do not import this card set. Fix the listed P0 blockers first, then re-run this audit.\n")
+        elif p1_rows:
+            f.write("Do not import this card set yet. Apply the grouped P1 structural fixes, then re-run this audit.\n")
+        elif warning_rows:
+            f.write(
+                "No P0/P1 findings remain. The set is clean for import review; the remaining unresolved-reference "
+                "warnings are bounded metadata that should stay visible unless resolved to stable card IDs.\n"
+            )
+        else:
+            f.write("No findings remain. The set is clean for import review.\n")
 
     summary = {
         "full_verdict": full_verdict,
@@ -465,7 +668,27 @@ def main() -> None:
         "p2_count": sum(1 for row in rows if row["severity"] == "P2" and row["verdict"] != "PASS"),
     }
     print(json.dumps(summary, indent=2))
+    return summary
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Audit generated Clause Cards against the source PDF.")
+    parser.add_argument("--cards-dir", type=Path, default=None, help="Override CARDS_DIR.")
+    parser.add_argument("--packet", type=Path, default=None, help="Override PACKET (warning register location).")
+    parser.add_argument("--pdf", type=Path, default=None, help="Override PDF_PATH.")
+    parser.add_argument("--outputs", type=Path, default=None, help="Override OUTPUTS.")
+    parser.add_argument("--fail-on-findings", action="store_true", help="Exit 2 if any P0/P1 rows remain.")
+    args = parser.parse_args()
+    if args.cards_dir:
+        CARDS_DIR = args.cards_dir.resolve()
+    if args.packet:
+        PACKET = args.packet.resolve()
+    if args.pdf:
+        PDF_PATH = args.pdf.resolve()
+    if args.outputs:
+        OUTPUTS = args.outputs.resolve()
+    result = main()
+    if args.fail_on_findings and (result["blocked"] or result["p1_count"]):
+        raise SystemExit(2)

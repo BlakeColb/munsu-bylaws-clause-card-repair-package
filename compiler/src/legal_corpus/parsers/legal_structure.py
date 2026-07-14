@@ -26,6 +26,22 @@ _NUMBERED_UNIT_RE = re.compile(r"^\s*(?P<number>\d+(?:\.\d+)+)\s+(?P<text>.+?)\s
 _PROFILE_NUMBERED_CLAUSE_RE = re.compile(r"^\s*(?P<number>\d+)\.\s*(?P<text>.*)$")
 _BYLAW_PART_RE = re.compile(r"^Part\s+(?P<roman>[IVXLCDM]+)\s*:\s*(?P<title>.+)$", re.IGNORECASE)
 _BYLAW_SECTION_RE = re.compile(r"^(?P<letter>[A-Z])\.\s*(?P<title>.*)$")
+_BYLAW_NUMBERED_SECTION_RE = re.compile(r"^Section\s+(?P<number>\d+)\s*:\s*(?P<title>.+)$")
+_BYLAW_LIST_ITEM_RE = re.compile(r"^(?P<marker>[a-z]|[ivxlcdm]{2,6})\.(?:\s+(?P<text>\S.*))?$")
+_ROMAN_MARKER_CHARS = frozenset("ivxlcdm")
+_RUNIN_MARKER_SPLIT_RE = re.compile(r"(?<=[;:.])\s+(?=(?:[a-z]|[ivxlcdm]{2,6})\.(?:\s+\S|$))")
+
+
+def _split_runin_list_markers(line: str) -> list[str]:
+    """Split list items that run on mid-line in the source text layer.
+
+    The PDF occasionally places the next marker on the same physical line as
+    the previous item (e.g. "... society; viii. Nursing ..."). Splitting on
+    the marker boundary changes only whitespace, never source words or order.
+    """
+    if not _RUNIN_MARKER_SPLIT_RE.search(line):
+        return [line]
+    return [part.strip() for part in _RUNIN_MARKER_SPLIT_RE.split(line) if part.strip()]
 _POLICY_SECTION_RE = re.compile(r"^Section\s+(?P<number>\d+)\s*:\s*(?P<title>.+)$", re.IGNORECASE)
 _POLICY_ROMAN_RE = re.compile(r"^(?P<roman>[IVXLCDM]+)\.\s*(?P<title>.+)$", re.IGNORECASE)
 _POLICY_PROVISION_RE = re.compile(r"^\((?P<letter>[a-z])\)\s*(?P<text>.*)$", re.IGNORECASE)
@@ -163,6 +179,7 @@ def _parse_munsu_bylaws(
     units: list[LegalUnit] = [instrument]
     warnings: list[str] = []
     current_part: LegalUnit | None = None
+    current_numbered_section: LegalUnit | None = None
     current_section: LegalUnit | None = None
     current_clause: LegalUnit | None = None
     pending_act_title: str | None = None
@@ -193,6 +210,7 @@ def _parse_munsu_bylaws(
                 source_block_id=block_id,
             )
             _append_profile_unit(units, current_part)
+            current_numbered_section = None
             current_section = None
             current_clause = None
             pending_act_title = None
@@ -200,6 +218,44 @@ def _parse_munsu_bylaws(
             continue
         if not started:
             index += 1
+            continue
+        numbered_match = _BYLAW_NUMBERED_SECTION_RE.match(line)
+        if numbered_match:
+            if current_part is None:
+                raise StructureRecordError("munsu_bylaws_v1 numbered section appeared before a Part heading")
+            number = numbered_match.group("number")
+            title = numbered_match.group("title").strip()
+            heading_lines = [line]
+            consumed_extra_title = False
+            if index + 1 < len(lines):
+                continuation = lines[index + 1][0]
+                if (
+                    continuation
+                    and continuation[0].islower()
+                    and not _heading_like(continuation)
+                    and not _BYLAW_LIST_ITEM_RE.match(continuation)
+                ):
+                    # Wrapped heading, e.g. "Section 8: Board of Directors
+                    # Membership" continued by "and Responsibilities".
+                    title = f"{title} {continuation.strip()}"
+                    heading_lines.append(continuation)
+                    consumed_extra_title = True
+            suffix = f"{current_part.slug}-section-{_normalize_identifier(number)}".removeprefix(f"{document.slug}-")
+            current_numbered_section = _profile_unit(
+                document,
+                unit_type="section",
+                suffix=suffix,
+                text=_join_profile_text(heading_lines),
+                title=title,
+                number=number,
+                anchor=anchor,
+                parent=current_part,
+                source_block_id=block_id,
+            )
+            _append_profile_unit(units, current_numbered_section)
+            current_section = None
+            current_clause = None
+            index += 2 if consumed_extra_title else 1
             continue
         section_match = _BYLAW_SECTION_RE.match(line)
         if section_match and _is_bylaw_section_heading(line, lines, index):
@@ -213,7 +269,11 @@ def _parse_munsu_bylaws(
                 if next_line and not _heading_like(next_line):
                     title = next_line.strip()
                     consumed_extra_title = True
-            suffix = f"{current_part.slug}-section-{letter.lower()}".removeprefix(f"{document.slug}-")
+            section_parent = current_numbered_section or current_part
+            if current_numbered_section is not None:
+                suffix = f"{current_numbered_section.slug}-{letter.lower()}".removeprefix(f"{document.slug}-")
+            else:
+                suffix = f"{current_part.slug}-section-{letter.lower()}".removeprefix(f"{document.slug}-")
             metadata: dict[str, str | list[str]] = {}
             if pending_act_title:
                 metadata["act_title"] = pending_act_title
@@ -225,10 +285,10 @@ def _parse_munsu_bylaws(
                 title=title or f"Section {letter}",
                 number=letter,
                 anchor=anchor,
-                parent=current_part,
+                parent=section_parent,
                 source_block_id=block_id,
-                metadata=metadata,
             )
+            current_section.metadata.update(metadata)
             _append_profile_unit(units, current_section)
             current_clause = None
             index += 2 if consumed_extra_title else 1
@@ -239,27 +299,47 @@ def _parse_munsu_bylaws(
             continue
         clause_match = _PROFILE_NUMBERED_CLAUSE_RE.match(line)
         if clause_match:
-            if current_section is None:
-                raise StructureRecordError("munsu_bylaws_v1 numbered clause appeared before a lettered section")
-            clause_lines, index = _consume_profile_body(lines, index, start_pattern=_PROFILE_NUMBERED_CLAUSE_RE)
+            clause_parent = current_section or current_numbered_section
+            if clause_parent is None:
+                raise StructureRecordError("munsu_bylaws_v1 numbered clause appeared before a section heading")
+            text, last_page, index = _consume_bylaw_flow(lines, index)
             number = clause_match.group("number")
-            text = _join_profile_text(clause_lines)
-            suffix = f"{current_section.slug}-clause-{_normalize_identifier(number)}".removeprefix(f"{document.slug}-")
+            suffix = f"{clause_parent.slug}-clause-{_normalize_identifier(number)}".removeprefix(f"{document.slug}-")
             current_clause = _profile_unit(
                 document,
                 unit_type="clause",
                 suffix=suffix,
                 text=text,
-                title=f"{current_section.title or current_section.number} {number}",
+                title=f"{clause_parent.title or clause_parent.number} {number}",
                 number=number,
-                anchor=anchor,
-                parent=current_section,
+                anchor=_anchor_with_span(anchor, last_page),
+                parent=clause_parent,
                 source_block_id=block_id,
             )
             _append_profile_unit(units, current_clause)
             continue
-        if current_clause and line and not _heading_like(line):
-            current_clause.text = _join_profile_text([current_clause.text, line])
+        is_list_item = bool(_BYLAW_LIST_ITEM_RE.match(line))
+        if (
+            current_section is not None
+            and current_clause is None
+            and line
+            and (is_list_item or not _heading_like(line))
+        ):
+            # Section body before any numbered clause: intro sentences and
+            # clause-less list runs (e.g. Referendum Procedures items a-e)
+            # belong to the section card instead of being dropped or spliced
+            # into a neighbouring clause.
+            text, last_page, index = _consume_bylaw_flow(lines, index)
+            if text:
+                current_section.text = f"{current_section.text}\n{text}"
+            _extend_unit_span(current_section, last_page)
+            continue
+        if current_clause is not None and line and (is_list_item or not _heading_like(line)):
+            text, last_page, index = _consume_bylaw_flow(lines, index)
+            if text:
+                current_clause.text = f"{current_clause.text}\n{text}"
+            _extend_unit_span(current_clause, last_page)
+            continue
         index += 1
 
     _require_profile_units(units, document.slug, "munsu_bylaws_v1")
@@ -456,8 +536,122 @@ def _is_bylaw_section_heading(
         return True
     if not remainder and index + 1 < len(lines):
         candidate = lines[index + 1][0]
-        return bool(candidate and candidate.isupper() and not _heading_like(candidate))
+        if not candidate or _heading_like(candidate) or _BYLAW_LIST_ITEM_RE.match(candidate):
+            return False
+        # Two-line lettered headings carry a short title on the next line. The
+        # source titles are not always fully upper-case (Part I Section I is
+        # "By LAWS"), so accept any short title-like line containing capitals.
+        return len(candidate.split()) <= 6 and any(ch.isupper() for ch in candidate)
     return False
+
+
+def _classify_list_marker(marker: str, alpha_next: str) -> str:
+    """Disambiguate single-letter markers that are both alpha and roman (c, d, i, l, m, v, x).
+
+    Lower-alpha lists advance sequentially, so a marker equal to the next
+    expected alpha letter is an alpha item (e.g. "i." after "h."); otherwise a
+    roman-charset letter starts or continues a nested roman list (e.g. "i."
+    directly after "a.").
+    """
+    if len(marker) > 1:
+        return "roman"
+    if marker == alpha_next:
+        return "alpha"
+    if marker in _ROMAN_MARKER_CHARS:
+        return "roman"
+    return "alpha"
+
+
+def _next_alpha(letter: str) -> str:
+    return chr(ord(letter) + 1) if letter < "z" else letter
+
+
+def _is_bylaw_break_line(
+    line: str,
+    lines: list[tuple[str, SourceAnchor, str]],
+    index: int,
+    *,
+    clause_pattern: re.Pattern[str],
+) -> bool:
+    if _BYLAW_PART_RE.match(line) or _BYLAW_NUMBERED_SECTION_RE.match(line):
+        return True
+    if clause_pattern.match(line):
+        return True
+    if _ADOPTED_RE.match(line) or _AMENDED_RE.match(line):
+        return True
+    return bool(_BYLAW_SECTION_RE.match(line) and _is_bylaw_section_heading(line, lines, index))
+
+
+def _consume_bylaw_flow(
+    lines: list[tuple[str, SourceAnchor, str]],
+    start: int,
+    *,
+    clause_pattern: re.Pattern[str] = _PROFILE_NUMBERED_CLAUSE_RE,
+) -> tuple[str, int | None, int]:
+    """Consume a bylaws clause or section-body run, preserving nested lists.
+
+    Unlike the generic profile consumer, lower-alpha and lowercase roman list
+    items are neither flattened into one paragraph nor treated as structural
+    breaks: each item is kept on its own line (roman items indented two spaces
+    under their alpha parent) so the source list hierarchy survives in the
+    generated card. Plain lines continue the open item or the head text, and
+    page-spanning continuations are followed. Returns the assembled text, the
+    page of the last consumed line, and the index of the first unconsumed
+    line.
+    """
+    head: list[str] = []
+    items: list[tuple[str, list[str]]] = []
+    current_item: tuple[str, list[str]] | None = None
+    alpha_next = "a"
+    last_page = lines[start][1].page
+    index = start
+    while index < len(lines):
+        line, anchor, _block_id = lines[index]
+        if _skip_profile_line(line):
+            index += 1
+            continue
+        if index != start and _is_bylaw_break_line(line, lines, index, clause_pattern=clause_pattern):
+            break
+        item_start = index != start or not clause_pattern.match(line)
+        for part in _split_runin_list_markers(line):
+            item_match = _BYLAW_LIST_ITEM_RE.match(part) if item_start else None
+            item_start = True
+            if item_match:
+                marker = item_match.group("marker")
+                kind = _classify_list_marker(marker, alpha_next)
+                if kind == "alpha":
+                    alpha_next = _next_alpha(marker)
+                    current_item = ("", [part])
+                else:
+                    current_item = ("  ", [part])
+                items.append(current_item)
+            elif current_item is not None:
+                current_item[1].append(part)
+            else:
+                head.append(part)
+        if anchor.page is not None:
+            last_page = anchor.page if last_page is None else max(last_page, anchor.page)
+        index += 1
+    parts: list[str] = []
+    head_text = re.sub(r"\s+", " ", " ".join(head)).strip()
+    if head_text:
+        parts.append(head_text)
+    for indent, item_lines in items:
+        parts.append(indent + re.sub(r"\s+", " ", " ".join(item_lines)).strip())
+    return "\n".join(parts), last_page, index
+
+
+def _anchor_with_span(anchor: SourceAnchor, last_page: int | None) -> SourceAnchor:
+    if last_page is None or anchor.page is None or last_page <= anchor.page:
+        return anchor
+    return anchor.model_copy(update={"page_end": last_page})
+
+
+def _extend_unit_span(unit: LegalUnit, last_page: int | None) -> None:
+    if last_page is None or unit.anchor.page is None:
+        return
+    if last_page > (unit.anchor.page_end or unit.anchor.page):
+        unit.anchor = unit.anchor.model_copy(update={"page_end": last_page})
 
 
 def _consume_profile_body(
