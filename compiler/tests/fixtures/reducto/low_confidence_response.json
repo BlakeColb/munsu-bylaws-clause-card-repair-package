@@ -1,0 +1,51 @@
+{
+  "job_id": "job-fictional-scan-low-confidence",
+  "duration": 8.0,
+  "usage": {
+    "num_pages": 1
+  },
+  "result": {
+    "type": "full",
+    "chunks": [
+      {
+        "content": "Fictional garbled OCR tex7 fr0m an old scan.",
+        "blocks": [
+          {
+            "id": "block-low-1",
+            "type": "paragraph",
+            "text": "Fictional garbled OCR tex7 fr0m an old scan.",
+            "page": 3,
+            "original_page": 3,
+            "bbox": [0.15, 0.40, 0.81, 0.51],
+            "confidence": "low",
+            "parse_confidence": 0.42,
+            "ocr": {
+              "lines": [
+                {
+                  "text": "Fictional garbled OCR tex7 fr0m an old scan.",
+                  "confidence": 0.42,
+                  "bbox": [0.15, 0.40, 0.81, 0.51]
+                }
+              ],
+              "words": []
+            }
+          },
+          {
+            "id": "block-empty-1",
+            "type": "paragraph",
+            "text": "",
+            "page": 4,
+            "original_page": 4,
+            "bbox": [0.10, 0.10, 0.90, 0.90],
+            "confidence": "low",
+            "parse_confidence": 0.12,
+            "ocr": {
+              "lines": [],
+              "words": []
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

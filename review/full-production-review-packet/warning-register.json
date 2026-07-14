@@ -1,0 +1,94 @@
+{
+  "metadata_only": true,
+  "warning_count": 8,
+  "warnings": [
+    {
+      "path": "legal/unresolved-references/munsu-bylaws-part-i-section-f-clause-2-subject-to-1.md",
+      "reference_text_sha256": "3ebdb22cc070bb743f7b9fd4d4bf3bced7573af828aa02027fda3df7f3ab2f8e",
+      "reference_type": "subject_to",
+      "resolution_status": "unresolved",
+      "sha256": "0e32dce6be671045c4b7b697596143c87992390302ea078de7fa3c2aad3da999",
+      "source_clause": "munsu-bylaws-part-i-section-f-clause-2",
+      "source_line_end": null,
+      "source_line_start": null,
+      "warning_id": "munsu-bylaws-part-i-section-f-clause-2-subject-to-1"
+    },
+    {
+      "path": "legal/unresolved-references/munsu-bylaws-part-i-section-h-clause-2-subject-to-2.md",
+      "reference_text_sha256": "b53da1a9510ed58e15559e9c198192be6793806124d5ad9ca5e834936f83f860",
+      "reference_type": "subject_to",
+      "resolution_status": "unresolved",
+      "sha256": "96cbc75b4b6558149b2f37adcb14b7af356239d6c198473c8a77225f26fdd7be",
+      "source_clause": "munsu-bylaws-part-i-section-h-clause-2",
+      "source_line_end": null,
+      "source_line_start": null,
+      "warning_id": "munsu-bylaws-part-i-section-h-clause-2-subject-to-2"
+    },
+    {
+      "path": "legal/unresolved-references/munsu-bylaws-part-ii-section-a-p12-clause-5-subject-to-3.md",
+      "reference_text_sha256": "bdf10f5ea63d88d53335664a75a85093a85ef37e4d09720f445b4183010eb540",
+      "reference_type": "subject_to",
+      "resolution_status": "unresolved",
+      "sha256": "dd2383f5cc9f0790ddd66f2d67b9332dbd95fbe66375ea5cf9b38308c8a07026",
+      "source_clause": "munsu-bylaws-part-ii-section-a-p12-clause-5",
+      "source_line_end": null,
+      "source_line_start": null,
+      "warning_id": "munsu-bylaws-part-ii-section-a-p12-clause-5-subject-to-3"
+    },
+    {
+      "path": "legal/unresolved-references/munsu-bylaws-part-ii-section-a-p16-clause-2-subject-to-4.md",
+      "reference_text_sha256": "03d1964a4ccb396e11a3110a67d7faba6c69edf80de067fdbe2f71f952db7ecd",
+      "reference_type": "subject_to",
+      "resolution_status": "unresolved",
+      "sha256": "319ea98ba70aee121a8baf64a8a9cc2e6f2a4b6e4da1ec14cc723101a80c3aa8",
+      "source_clause": "munsu-bylaws-part-ii-section-a-p16-clause-2",
+      "source_line_end": null,
+      "source_line_start": null,
+      "warning_id": "munsu-bylaws-part-ii-section-a-p16-clause-2-subject-to-4"
+    },
+    {
+      "path": "legal/unresolved-references/munsu-bylaws-part-ii-section-a-p60-clause-1-exception-to-8.md",
+      "reference_text_sha256": "02421e555bcc4806924a0748f9adb97524db322dcb7ee9fb11a0e36df9fa71eb",
+      "reference_type": "exception_to",
+      "resolution_status": "unresolved",
+      "sha256": "3129b9c14221e579bbcbd808129ece60419a908d6ea07b3b43f21e6ffc19bd2d",
+      "source_clause": "munsu-bylaws-part-ii-section-a-p60-clause-1",
+      "source_line_end": null,
+      "source_line_start": null,
+      "warning_id": "munsu-bylaws-part-ii-section-a-p60-clause-1-exception-to-8"
+    },
+    {
+      "path": "legal/unresolved-references/munsu-bylaws-part-ii-section-b-p52-clause-1-exception-to-5.md",
+      "reference_text_sha256": "b850fb1e697b66291bda287aa7d62b630dab291780e35743b730dab190e6ccdd",
+      "reference_type": "exception_to",
+      "resolution_status": "unresolved",
+      "sha256": "12ea11f2e9656c293f275dd939e02d62ccb876b376bd29b39a05d33e209cf977",
+      "source_clause": "munsu-bylaws-part-ii-section-b-p52-clause-1",
+      "source_line_end": null,
+      "source_line_start": null,
+      "warning_id": "munsu-bylaws-part-ii-section-b-p52-clause-1-exception-to-5"
+    },
+    {
+      "path": "legal/unresolved-references/munsu-bylaws-part-ii-section-d-p54-clause-4-subject-to-6.md",
+      "reference_text_sha256": "946bd9ab12bbebc79c09782e4f77453a5b885ffbe54c5c07bb2c05c7e99d8521",
+      "reference_type": "subject_to",
+      "resolution_status": "unresolved",
+      "sha256": "ce1b3907dceacc06fcf9dd7e60915e09f1c80c1fb39ef0f51936e7ca067fcbec",
+      "source_clause": "munsu-bylaws-part-ii-section-d-p54-clause-4",
+      "source_line_end": null,
+      "source_line_start": null,
+      "warning_id": "munsu-bylaws-part-ii-section-d-p54-clause-4-subject-to-6"
+    },
+    {
+      "path": "legal/unresolved-references/munsu-bylaws-part-ii-section-d-p54-clause-5-subject-to-7.md",
+      "reference_text_sha256": "946bd9ab12bbebc79c09782e4f77453a5b885ffbe54c5c07bb2c05c7e99d8521",
+      "reference_type": "subject_to",
+      "resolution_status": "unresolved",
+      "sha256": "0c1055650665eaf222a934238c934f1c209f9431adf44d2583619e27e556a90e",
+      "source_clause": "munsu-bylaws-part-ii-section-d-p54-clause-5",
+      "source_line_end": null,
+      "source_line_start": null,
+      "warning_id": "munsu-bylaws-part-ii-section-d-p54-clause-5-subject-to-7"
+    }
+  ]
+}

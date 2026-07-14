@@ -1,0 +1,25 @@
+{
+  "fictional_fixture": true,
+  "errors": [
+    {
+      "status_code": 429,
+      "category": "provider_rate_limit",
+      "message": "Fictional rate limit response for tests."
+    },
+    {
+      "status_code": 504,
+      "category": "provider_timeout",
+      "message": "Fictional timeout response for tests."
+    },
+    {
+      "status_code": 442,
+      "category": "pdf_password_protected",
+      "message": "Fictional password protected response for tests."
+    },
+    {
+      "status_code": 415,
+      "category": "pdf_corrupt_or_unsupported",
+      "message": "Fictional corrupt PDF response for tests."
+    }
+  ]
+}

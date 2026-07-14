@@ -1,0 +1,20 @@
+[project]
+name = "legal-corpus-compiler"
+version = "0.1.0"
+description = "Compile legal PDF and Markdown sources into a GBrain-ready Markdown corpus."
+requires-python = ">=3.12"
+dependencies = [
+  "typer>=0.12",
+  "pydantic>=2",
+  "PyYAML>=6",
+  "reductoai>=0.22,<1",
+  "PyMuPDF>=1.24",
+]
+
+[project.scripts]
+legal-corpus = "legal_corpus.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"

@@ -1,0 +1,43 @@
+{
+  "job_id": "job-fictional-scan-001",
+  "duration": 12.5,
+  "usage": {
+    "num_pages": 2
+  },
+  "result": {
+    "type": "full",
+    "chunks": [
+      {
+        "content": "Fictional OCR text from a scanned bylaw page.",
+        "blocks": [
+          {
+            "id": "block-1",
+            "type": "paragraph",
+            "text": "Fictional OCR text from a scanned bylaw page.",
+            "page": 1,
+            "original_page": 1,
+            "bbox": [0.11, 0.22, 0.70, 0.30],
+            "confidence": "high",
+            "parse_confidence": 0.96,
+            "ocr": {
+              "lines": [
+                {
+                  "text": "Fictional OCR text from a scanned bylaw page.",
+                  "confidence": 0.95,
+                  "bbox": [0.11, 0.22, 0.70, 0.30]
+                }
+              ],
+              "words": [
+                {
+                  "text": "Fictional",
+                  "confidence": 0.95,
+                  "bbox": [0.11, 0.22, 0.20, 0.30]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

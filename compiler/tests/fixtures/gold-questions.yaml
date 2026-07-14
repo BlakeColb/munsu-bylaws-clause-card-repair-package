@@ -1,0 +1,26 @@
+questions:
+  - id: recognized-member-definition
+    question: What does recognized member mean in the example bylaw?
+    expected_clause_ids:
+      - example-bylaw-1.2
+    expected_parent_ids:
+      - example-bylaw-section-1
+    expected_definition_ids:
+      - recognized-member
+    rationale: Definition questions should retrieve the defining clause, its section context, and the generated definition page.
+  - id: budget-notice-deadline
+    question: How much notice is required before a budget hearing?
+    expected_clause_ids:
+      - example-policy-2.1
+    expected_parent_ids:
+      - example-policy-policy-2
+    expected_definition_ids: []
+    rationale: Policy deadline questions should retrieve the operative clause and its parent policy heading.
+  - id: safety-register-access
+    question: Where are safety register access rules stated?
+    expected_clause_ids:
+      - example-legislation-7.1
+    expected_parent_ids:
+      - example-legislation-section-7
+    expected_definition_ids: []
+    rationale: Legislative access questions should retrieve the clause and section context.

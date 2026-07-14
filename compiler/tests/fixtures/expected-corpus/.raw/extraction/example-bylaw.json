@@ -1,0 +1,8 @@
+{
+  "source_path": "tests/fixtures/sources/example-bylaw.md",
+  "extraction_method": "fictional-fixture",
+  "page_start": null,
+  "page_end": null,
+  "warnings": []
+}
+

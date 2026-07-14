@@ -1,0 +1,22 @@
+documents:
+  - source_path: "sources/munsu-bylaws-2026.pdf"
+    document_type: "bylaw"
+    title: "MUNSU Bylaws"
+    slug: "munsu-bylaws"
+    jurisdiction: "Memorial University Students' Union"
+    authority_rank: 40
+    status: "active"
+    confidentiality: "public"
+    effective_date: "2026-01-01"
+    owner: "MUNSU"
+    version: "2026-01-01 source copy"
+    reviewed_by: null
+    metadata_notes:
+      - "reviewed_by is null because legal/operator review has not been completed yet."
+      - "Source file was copied from a locally retained approved public source into the dedicated intake root."
+      - "confidentiality is public because the established Bylaws production gate accepts only public Bylaws artifacts."
+    profile: "munsu_bylaws_v1"
+    corpus_id: "legal-corpus"
+    corpus_version: "munsu-legal-v1"
+    sync_eligibility: "blocked"
+    review_date: null
